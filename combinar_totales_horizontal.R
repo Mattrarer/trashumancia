@@ -49,8 +49,12 @@ combinar_totales_horizontal <- function(ruta_carpeta,
     str_extract(basename(x), patron_fecha)
   })
 
-  archivos <- archivos[order(fechas_archivos)]
-  fechas_archivos <- sort(fechas_archivos)
+  # Convertir fechas a formato Date para ordenamiento correcto
+  fechas_date <- as.Date(fechas_archivos, format = "%d-%m-%Y")
+  orden <- order(fechas_date)
+
+  archivos <- archivos[orden]
+  fechas_archivos <- fechas_archivos[orden]
 
   cat("Se encontraron", length(archivos), "archivos Excel\n")
   cat("Orden de procesamiento:\n")
@@ -113,7 +117,7 @@ combinar_totales_horizontal <- function(ruta_carpeta,
           select(Código, Departamento, Municipio, Total)
 
         # Renombrar la columna Total con la fecha
-        names(resultado)[names(resultado) == "Total"] <- paste0("total al día ", fecha)
+        names(resultado)[names(resultado) == "Total"] <- fecha
 
         cat("  ✓ Archivo base cargado:", nrow(resultado), "filas\n")
 
@@ -138,7 +142,7 @@ combinar_totales_horizontal <- function(ruta_carpeta,
           rename(Código = all_of(codigo_col))
 
         # Renombrar la columna Total con la fecha
-        nombre_total <- paste0("total al día ", fecha)
+        nombre_total <- fecha
         names(datos_nuevos)[names(datos_nuevos) == total_col] <- nombre_total
 
         # Hacer merge horizontal con el resultado existente
@@ -238,11 +242,12 @@ ruta_mis_datos <- "./datos_excel"  # <-- CAMBIA ESTO
 #
 # 4. RESULTADO:
 #    - El primer archivo se toma como base (Código, Departamento, Municipio, Total)
-#    - Cada archivo adicional agrega UNA columna: "total al día [fecha]"
+#    - Cada archivo adicional agrega UNA columna con el nombre de la fecha
 #    - Las filas NO se duplican, solo se agregan columnas horizontalmente
 #    - Se hace match por el campo "Código"
 #
 # 5. ORDEN DE PROCESAMIENTO:
-#    - Los archivos se procesan en orden cronológico (por fecha en el nombre)
+#    - Los archivos se procesan en orden cronológico ascendente (por fecha en el nombre)
+#    - Las columnas aparecen de izquierda a derecha en orden cronológico
 #
 # ============================================================================
