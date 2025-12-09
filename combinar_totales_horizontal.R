@@ -181,9 +181,83 @@ combinar_totales_horizontal <- function(ruta_carpeta,
     }
     cat("\n")
 
-    # Guardar en Excel
+    # ========================================================================
+    # CALCULAR TOP 10 MUNICIPIOS CON MAYOR ÍNDICE DE CRECIMIENTO
+    # ========================================================================
+
+    # Identificar columnas de fechas (todas excepto Código, Departamento, Municipio)
+    columnas_fechas <- setdiff(names(resultado), c("Código", "Departamento", "Municipio"))
+
+    if (length(columnas_fechas) >= 2) {
+      cat("=" , rep("=", 70), "\n", sep = "")
+      cat("CALCULANDO ÍNDICE DE CRECIMIENTO\n")
+      cat("=" , rep("=", 70), "\n", sep = "")
+
+      # Primera y última fecha
+      primera_fecha <- columnas_fechas[1]
+      ultima_fecha <- columnas_fechas[length(columnas_fechas)]
+
+      cat("Primera fecha:", primera_fecha, "\n")
+      cat("Última fecha:", ultima_fecha, "\n\n")
+
+      # Calcular crecimiento
+      tabla_crecimiento <- resultado %>%
+        mutate(
+          Total_Inicial = .data[[primera_fecha]],
+          Total_Final = .data[[ultima_fecha]],
+          Crecimiento_Absoluto = Total_Final - Total_Inicial,
+          Indice_Crecimiento_Pct = ifelse(
+            Total_Inicial > 0,
+            round((Total_Final - Total_Inicial) / Total_Inicial * 100, 2),
+            NA
+          )
+        ) %>%
+        select(Código, Departamento, Municipio, Total_Inicial, Total_Final,
+               Crecimiento_Absoluto, Indice_Crecimiento_Pct) %>%
+        arrange(desc(Indice_Crecimiento_Pct))
+
+      # Top 10 municipios
+      top_10_crecimiento <- tabla_crecimiento %>%
+        filter(!is.na(Indice_Crecimiento_Pct)) %>%
+        head(10)
+
+      # Renombrar columnas para mejor presentación
+      top_10_presentacion <- top_10_crecimiento %>%
+        rename(
+          `Total Inicial` = Total_Inicial,
+          `Total Final` = Total_Final,
+          `Crecimiento Absoluto` = Crecimiento_Absoluto,
+          `Índice de Crecimiento (%)` = Indice_Crecimiento_Pct
+        )
+
+      cat("TOP 10 MUNICIPIOS CON MAYOR ÍNDICE DE CRECIMIENTO:\n\n")
+      for (i in 1:nrow(top_10_presentacion)) {
+        cat(sprintf(
+          "%2d. %s (%s) - %s%% de crecimiento (de %s a %s)\n",
+          i,
+          top_10_presentacion$Municipio[i],
+          top_10_presentacion$Departamento[i],
+          format(top_10_presentacion$`Índice de Crecimiento (%)`[i], nsmall = 2),
+          format(top_10_presentacion$`Total Inicial`[i], big.mark = ","),
+          format(top_10_presentacion$`Total Final`[i], big.mark = ",")
+        ))
+      }
+      cat("\n")
+
+      # Crear lista de hojas para el Excel
+      hojas_excel <- list(
+        "Datos Combinados" = resultado,
+        "Top 10 Crecimiento" = top_10_presentacion
+      )
+
+    } else {
+      cat("No hay suficientes fechas para calcular crecimiento.\n")
+      hojas_excel <- list("Datos Combinados" = resultado)
+    }
+
+    # Guardar en Excel con múltiples hojas
     ruta_completa <- file.path(ruta_carpeta, archivo_salida)
-    write_xlsx(resultado, ruta_completa)
+    write_xlsx(hojas_excel, ruta_completa)
     cat("Archivo guardado en:", ruta_completa, "\n")
 
     # También guardar en CSV por si acaso
@@ -245,9 +319,17 @@ ruta_mis_datos <- "./datos_excel"  # <-- CAMBIA ESTO
 #    - Cada archivo adicional agrega UNA columna con el nombre de la fecha
 #    - Las filas NO se duplican, solo se agregan columnas horizontalmente
 #    - Se hace match por el campo "Código"
+#    - El archivo Excel de salida contiene DOS HOJAS:
+#      * "Datos Combinados": Todos los datos con columnas por fecha
+#      * "Top 10 Crecimiento": Los 10 municipios con mayor índice de crecimiento
 #
 # 5. ORDEN DE PROCESAMIENTO:
 #    - Los archivos se procesan en orden cronológico ascendente (por fecha en el nombre)
 #    - Las columnas aparecen de izquierda a derecha en orden cronológico
+#
+# 6. ÍNDICE DE CRECIMIENTO:
+#    - Se calcula comparando la primera fecha con la última fecha
+#    - Fórmula: ((Total_Final - Total_Inicial) / Total_Inicial) * 100
+#    - Se muestran los 10 municipios con mayor porcentaje de crecimiento
 #
 # ============================================================================
