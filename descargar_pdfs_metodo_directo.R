@@ -5,6 +5,19 @@ library(httr)
 library(jsonlite)
 library(stringr)
 
+# Librerías para paralelización (instaladas automáticamente si no existen)
+if (!require("future", quietly = TRUE)) {
+  cat("📦 Instalando paquete 'future'...\n")
+  install.packages("future", quiet = TRUE)
+  library(future)
+}
+
+if (!require("furrr", quietly = TRUE)) {
+  cat("📦 Instalando paquete 'furrr'...\n")
+  install.packages("furrr", quiet = TRUE)
+  library(furrr)
+}
+
 # ===============================================
 # CONFIGURACIÓN
 # ===============================================
@@ -258,6 +271,252 @@ descargar_lote <- function(urls, pausa = 0.5) {
 }
 
 # ===============================================
+# DESCARGA PARALELA CON WORKERS (⚡ RÁPIDO)
+# ===============================================
+
+#' Configurar el número de workers para descarga paralela
+#' @param num_workers Número de procesos paralelos (default: detecta automáticamente)
+#' @param estrategia "multicore" (Linux/Mac) o "multisession" (Windows/todos)
+configurar_workers <- function(num_workers = NULL, estrategia = NULL) {
+
+  # Detectar número óptimo de workers
+  if (is.null(num_workers)) {
+    # Usar el 75% de los cores disponibles
+    num_cores <- parallel::detectCores()
+    num_workers <- max(1, floor(num_cores * 0.75))
+  }
+
+  # Detectar estrategia según el sistema operativo
+  if (is.null(estrategia)) {
+    if (.Platform$OS.type == "unix") {
+      estrategia <- "multicore"  # Más eficiente en Linux/Mac
+    } else {
+      estrategia <- "multisession"  # Compatible con Windows
+    }
+  }
+
+  # Configurar plan de paralelización
+  plan(estrategia, workers = num_workers)
+
+  cat("✓ Configurados", num_workers, "workers con estrategia:", estrategia, "\n")
+  cat("  Sistema operativo:", .Platform$OS.type, "\n")
+  cat("  Cores disponibles:", parallel::detectCores(), "\n\n")
+
+  return(invisible(num_workers))
+}
+
+#' Descargar un PDF (versión silenciosa para uso paralelo)
+descargar_pdf_silencioso <- function(url, carpeta = CARPETA_DESCARGA) {
+
+  # Extraer nombre del archivo
+  nombre_archivo <- basename(url)
+  nombre_archivo <- stringr::str_remove(nombre_archivo, "\\?.*$")
+
+  # Agregar subcarpetas por zona/puesto si es posible
+  partes <- stringr::str_match(url, "/pdf/27/001/(\\d+)/(\\d+)/(\\d+)/([A-Z]+)/")
+  if (!is.na(partes[1])) {
+    zona <- partes[2]
+    puesto <- partes[3]
+    mesa <- partes[4]
+    tipo <- partes[5]
+
+    # Crear subcarpeta
+    subcarpeta <- file.path(carpeta, paste0("Zona_", zona), paste0("Puesto_", puesto))
+    if (!dir.exists(subcarpeta)) {
+      dir.create(subcarpeta, recursive = TRUE, showWarnings = FALSE)
+    }
+
+    # Nombre más descriptivo
+    nombre_archivo <- sprintf("%s_Mesa_%s_%s.pdf", tipo, mesa, nombre_archivo)
+    ruta_destino <- file.path(subcarpeta, nombre_archivo)
+  } else {
+    ruta_destino <- file.path(carpeta, nombre_archivo)
+  }
+
+  # Si ya existe, saltar
+  if (file.exists(ruta_destino)) {
+    return(list(
+      exito = TRUE,
+      ruta = ruta_destino,
+      nuevo = FALSE,
+      url = url,
+      nombre = basename(ruta_destino)
+    ))
+  }
+
+  # Descargar
+  tryCatch({
+    response <- httr::GET(
+      url,
+      httr::add_headers(
+        `User-Agent` = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        `Referer` = paste0(BASE_URL, "/departamento/27")
+      ),
+      httr::timeout(30)
+    )
+
+    if (httr::status_code(response) == 200) {
+      writeBin(httr::content(response, "raw"), ruta_destino)
+      return(list(
+        exito = TRUE,
+        ruta = ruta_destino,
+        nuevo = TRUE,
+        url = url,
+        nombre = basename(ruta_destino)
+      ))
+    } else {
+      return(list(
+        exito = FALSE,
+        ruta = NULL,
+        nuevo = FALSE,
+        url = url,
+        nombre = basename(ruta_destino),
+        error = paste("HTTP", httr::status_code(response))
+      ))
+    }
+  }, error = function(e) {
+    return(list(
+      exito = FALSE,
+      ruta = NULL,
+      nuevo = FALSE,
+      url = url,
+      nombre = nombre_archivo,
+      error = conditionMessage(e)
+    ))
+  })
+}
+
+#' Descargar múltiples PDFs en paralelo (⚡ VERSIÓN RÁPIDA)
+#' @param urls Vector de URLs a descargar
+#' @param num_workers Número de workers paralelos (NULL = auto-detectar)
+#' @param estrategia "multicore" (Linux/Mac) o "multisession" (Windows)
+#' @param mostrar_progreso Mostrar barra de progreso (default: TRUE)
+descargar_lote_paralelo <- function(urls, num_workers = NULL, estrategia = NULL, mostrar_progreso = TRUE) {
+
+  cat("\n⚡ DESCARGA PARALELA ACTIVADA ⚡\n")
+  cat(rep("=", 70), "\n\n")
+
+  # Configurar workers
+  num_workers_real <- configurar_workers(num_workers, estrategia)
+
+  cat("📥 Descargando", length(urls), "PDFs en paralelo...\n")
+  cat("⏱  Tiempo estimado:", round(length(urls) / num_workers_real * 0.5, 1), "segundos\n\n")
+
+  # Descargar en paralelo con barra de progreso
+  if (mostrar_progreso) {
+    resultados <- furrr::future_map(
+      urls,
+      descargar_pdf_silencioso,
+      .options = furrr_options(seed = TRUE),
+      .progress = TRUE
+    )
+  } else {
+    resultados <- furrr::future_map(
+      urls,
+      descargar_pdf_silencioso,
+      .options = furrr_options(seed = TRUE)
+    )
+  }
+
+  # Resetear plan a secuencial
+  plan(sequential)
+
+  # Resumen detallado
+  exitosos <- sum(sapply(resultados, function(x) x$exito))
+  nuevos <- sum(sapply(resultados, function(x) x$nuevo))
+  fallidos <- length(urls) - exitosos
+
+  cat("\n\n")
+  cat(rep("=", 70), "\n")
+  cat("📊 RESUMEN DE DESCARGA PARALELA\n")
+  cat(rep("=", 70), "\n")
+  cat("  Total de PDFs:      ", length(urls), "\n")
+  cat("  ✓ Exitosos:         ", exitosos, "\n")
+  cat("  ✨ Nuevos:          ", nuevos, "\n")
+  cat("  ⏭  Ya existían:     ", exitosos - nuevos, "\n")
+  cat("  ✗ Fallidos:         ", fallidos, "\n")
+  cat("  ⚡ Workers usados:  ", num_workers_real, "\n")
+  cat(rep("=", 70), "\n\n")
+
+  # Mostrar errores si los hay
+  if (fallidos > 0) {
+    cat("❌ PDFs que fallaron:\n")
+    for (i in seq_along(resultados)) {
+      if (!resultados[[i]]$exito) {
+        cat("  -", resultados[[i]]$nombre, "\n")
+        if (!is.null(resultados[[i]]$error)) {
+          cat("    Error:", resultados[[i]]$error, "\n")
+        }
+      }
+    }
+    cat("\n")
+  }
+
+  return(resultados)
+}
+
+#' Descargar con chunks (grupos) para balancear velocidad y control
+#' @param urls Vector de URLs
+#' @param chunk_size Tamaño de cada grupo (default: 10)
+#' @param num_workers Número de workers por chunk
+#' @param pausa_entre_chunks Pausa en segundos entre chunks (default: 2)
+descargar_lote_por_chunks <- function(urls, chunk_size = 10, num_workers = 4, pausa_entre_chunks = 2) {
+
+  cat("\n📦 DESCARGA POR CHUNKS (GRUPOS)\n")
+  cat(rep("=", 70), "\n\n")
+
+  # Dividir URLs en chunks
+  num_chunks <- ceiling(length(urls) / chunk_size)
+  chunks <- split(urls, ceiling(seq_along(urls) / chunk_size))
+
+  cat("📊 Configuración:\n")
+  cat("  Total de PDFs:     ", length(urls), "\n")
+  cat("  Tamaño de chunk:   ", chunk_size, "\n")
+  cat("  Número de chunks:  ", num_chunks, "\n")
+  cat("  Workers por chunk: ", num_workers, "\n")
+  cat("  Pausa entre chunks:", pausa_entre_chunks, "segundos\n\n")
+
+  # Procesar cada chunk
+  todos_resultados <- list()
+
+  for (i in seq_along(chunks)) {
+    cat("\n📦 Procesando chunk", i, "de", num_chunks, "(", length(chunks[[i]]), "PDFs )\n")
+    cat(rep("-", 70), "\n")
+
+    resultados_chunk <- descargar_lote_paralelo(
+      chunks[[i]],
+      num_workers = num_workers,
+      mostrar_progreso = TRUE
+    )
+
+    todos_resultados <- c(todos_resultados, resultados_chunk)
+
+    # Pausa entre chunks (excepto en el último)
+    if (i < num_chunks) {
+      cat("⏸  Pausa de", pausa_entre_chunks, "segundos antes del siguiente chunk...\n")
+      Sys.sleep(pausa_entre_chunks)
+    }
+  }
+
+  # Resumen final
+  exitosos <- sum(sapply(todos_resultados, function(x) x$exito))
+  nuevos <- sum(sapply(todos_resultados, function(x) x$nuevo))
+
+  cat("\n\n")
+  cat(rep("=", 70), "\n")
+  cat("📊 RESUMEN FINAL\n")
+  cat(rep("=", 70), "\n")
+  cat("  Total procesado:    ", length(urls), "\n")
+  cat("  ✓ Exitosos:         ", exitosos, "\n")
+  cat("  ✨ Nuevos:          ", nuevos, "\n")
+  cat("  ⏭  Ya existían:     ", exitosos - nuevos, "\n")
+  cat("  ✗ Fallidos:         ", length(urls) - exitosos, "\n")
+  cat(rep("=", 70), "\n\n")
+
+  return(todos_resultados)
+}
+
+# ===============================================
 # FLUJO DE TRABAJO RECOMENDADO
 # ===============================================
 
@@ -296,7 +555,22 @@ cat("urls <- c(\n")
 cat("  'https://divulgacione14bucaramanga.registraduria.gov.co/assets/temis/pdf/27/001/001/01/001/ALC/xxx.pdf?uuid=xxx',\n")
 cat("  'https://divulgacione14bucaramanga.registraduria.gov.co/assets/temis/pdf/27/001/001/01/002/ALC/yyy.pdf?uuid=yyy'\n")
 cat(")\n")
-cat("descargar_lote(urls)\n\n")
+cat("descargar_lote(urls)           # Secuencial (lento)\n")
+cat("descargar_lote_paralelo(urls)  # ⚡ PARALELO (RÁPIDO)\n\n")
+
+cat("⚡ DESCARGA PARALELA (NUEVA FUNCIONALIDAD):\n")
+cat("------------------------------------------\n")
+cat("# Descarga súper rápida con todos los cores disponibles\n")
+cat("descargar_lote_paralelo(urls)\n\n")
+cat("# Controlar número de workers manualmente\n")
+cat("descargar_lote_paralelo(urls, num_workers = 4)\n\n")
+cat("# Descargar por chunks (grupos) - más controlado\n")
+cat("descargar_lote_por_chunks(urls, chunk_size = 20, num_workers = 4)\n\n")
 
 cat("📁 Los PDFs se guardarán en:", CARPETA_DESCARGA, "\n")
 cat("   Organizados por: Zona_XXX/Puesto_YY/\n\n")
+
+cat("💡 RECOMENDACIÓN:\n")
+cat("   • Pocas URLs (<50):     descargar_lote_paralelo(urls)\n")
+cat("   • Muchas URLs (>100):   descargar_lote_por_chunks(urls)\n")
+cat("   • Servidor lento:       descargar_lote(urls) # secuencial\n\n")

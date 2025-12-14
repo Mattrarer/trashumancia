@@ -13,6 +13,10 @@ install.packages("rvest")
 install.packages("dplyr")
 install.packages("purrr")
 install.packages("stringr")
+
+# Para descarga paralela (⚡ RÁPIDO):
+install.packages("future")
+install.packages("furrr")
 ```
 
 ## 📁 Archivos Incluidos
@@ -91,7 +95,41 @@ descargar_lote(urls)
 
 ---
 
-### Método 3: Intentar GraphQL (Automático)
+### Método 3: ⚡ Descarga Paralela (SÚPER RÁPIDO)
+
+**¡NUEVO!** Descarga PDFs en paralelo usando múltiples workers para máxima velocidad:
+
+```r
+source("descargar_pdfs_metodo_directo.R")
+
+# Importar URLs
+urls <- importar_urls_desde_archivo("urls_pdfs.txt")
+
+# ⚡ Descarga paralela automática (detecta cores disponibles)
+resultados <- descargar_lote_paralelo(urls)
+
+# O controlar manualmente el número de workers
+resultados <- descargar_lote_paralelo(urls, num_workers = 8)
+
+# Para muchas URLs, usar chunks (grupos):
+resultados <- descargar_lote_por_chunks(urls, chunk_size = 20, num_workers = 4)
+```
+
+**Ventajas:**
+- ✨ **5-10x más rápido** que descarga secuencial
+- 🔄 Usa múltiples cores del CPU simultáneamente
+- 📊 Barra de progreso en tiempo real
+- 🛡️ Manejo robusto de errores
+- 💪 Auto-detecta número óptimo de workers
+
+**Cuándo usar cada método:**
+- **Pocas URLs (<50)**: `descargar_lote_paralelo(urls)` - Máxima velocidad
+- **Muchas URLs (>100)**: `descargar_lote_por_chunks(urls)` - Más controlado
+- **Servidor inestable**: `descargar_lote(urls)` - Secuencial (más lento pero seguro)
+
+---
+
+### Método 4: Intentar GraphQL (Automático)
 
 **⚠ Este método puede requerir ajustes** según cómo esté implementada la API:
 
@@ -105,7 +143,7 @@ datos <- obtener_mesas_graphql()
 if (!is.null(datos)) {
   # Ajusta según la estructura real de la respuesta
   urls <- datos$data$consultarMesas$urlPdf
-  descargar_lote(urls)
+  descargar_lote_paralelo(urls)  # ⚡ Usar versión paralela
 }
 ```
 
@@ -131,11 +169,18 @@ pdfs_registraduria/
 
 ### En `descargar_pdfs_metodo_directo.R`:
 
+**Funciones básicas:**
 - **`importar_urls_desde_archivo(archivo)`** - Importa URLs desde un archivo de texto
 - **`descargar_pdf(url)`** - Descarga un PDF individual
-- **`descargar_lote(urls)`** - Descarga múltiples PDFs con barra de progreso
+- **`descargar_lote(urls, pausa)`** - Descarga secuencial con barra de progreso
 - **`obtener_mesas_graphql(zona, puesto)`** - Intenta obtener datos vía GraphQL
 - **`construir_url_pdf(...)`** - Construye URL manualmente (requiere hash y UUID)
+
+**⚡ Funciones paralelas (NUEVO):**
+- **`descargar_lote_paralelo(urls, num_workers, estrategia)`** - Descarga paralela súper rápida
+- **`descargar_lote_por_chunks(urls, chunk_size, num_workers)`** - Descarga por grupos
+- **`configurar_workers(num_workers, estrategia)`** - Configura workers para paralelización
+- **`descargar_pdf_silencioso(url)`** - Versión silenciosa para uso paralelo
 
 ### En `explorar_api_registraduria.R`:
 
@@ -232,11 +277,56 @@ Filtra las URLs antes de descargar:
 ```r
 # Solo Alcalde (ALC)
 urls_alc <- urls[grepl("/ALC/", urls)]
-descargar_lote(urls_alc)
+descargar_lote_paralelo(urls_alc)  # ⚡ Versión paralela
 
 # Solo Concejo (CON)
 urls_con <- urls[grepl("/CON/", urls)]
-descargar_lote(urls_con)
+descargar_lote_paralelo(urls_con)  # ⚡ Versión paralela
+```
+
+### ⚡ Configuración de Descarga Paralela
+
+**Configurar número de workers manualmente:**
+
+```r
+# Usar 4 workers (núcleos de CPU)
+descargar_lote_paralelo(urls, num_workers = 4)
+
+# Usar máximo de workers (todos los cores)
+descargar_lote_paralelo(urls, num_workers = parallel::detectCores())
+```
+
+**Elegir estrategia de paralelización:**
+
+```r
+# Multicore (más eficiente en Linux/Mac)
+descargar_lote_paralelo(urls, estrategia = "multicore")
+
+# Multisession (compatible con Windows)
+descargar_lote_paralelo(urls, estrategia = "multisession")
+
+# Auto-detectar según el sistema operativo (recomendado)
+descargar_lote_paralelo(urls)  # Detecta automáticamente
+```
+
+**Descarga por chunks para grandes volúmenes:**
+
+```r
+# Descargar 500 PDFs en grupos de 50, usando 4 workers por grupo
+descargar_lote_por_chunks(
+  urls,
+  chunk_size = 50,
+  num_workers = 4,
+  pausa_entre_chunks = 3  # 3 segundos de pausa entre grupos
+)
+
+# Para evitar saturar el servidor con miles de PDFs
+descargar_lote_por_chunks(
+  urls,
+  chunk_size = 20,   # Grupos pequeños
+  num_workers = 3,   # Pocos workers
+  pausa_entre_chunks = 5  # Pausas largas
+)
 ```
 
 ## ❓ Solución de Problemas

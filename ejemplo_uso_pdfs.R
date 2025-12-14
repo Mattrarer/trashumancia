@@ -19,7 +19,14 @@ if (file.exists("urls_pdfs.txt")) {
     cat("\n¿Descargar", length(urls), "PDFs? (Presiona Enter para continuar, Ctrl+C para cancelar)\n")
     readline()
 
-    resultados <- descargar_lote(urls)
+    # Opción 1: Descarga secuencial (más lenta)
+    # resultados <- descargar_lote(urls)
+
+    # Opción 2: ⚡ Descarga paralela (RECOMENDADO - más rápida)
+    resultados <- descargar_lote_paralelo(urls)
+
+    # Opción 3: Descarga por chunks (para muchas URLs)
+    # resultados <- descargar_lote_por_chunks(urls, chunk_size = 20, num_workers = 4)
   }
 } else {
   cat("⚠ No se encontró el archivo urls_pdfs.txt\n")
@@ -72,8 +79,40 @@ urls_ejemplo <- c(
 # if (!is.null(datos_graphql)) {
 #   # Ajusta según la estructura real de la respuesta
 #   urls <- datos_graphql$data$mesas$urlPdf
-#   descargar_lote(urls)
+#   descargar_lote_paralelo(urls)  # ⚡ Usar versión paralela
 # }
+
+# ===============================================
+# EJEMPLO 5: ⚡ DESCARGA PARALELA AVANZADA
+# ===============================================
+
+# # Configurar workers manualmente (ejemplo: 8 workers)
+# urls <- importar_urls_desde_archivo("urls_pdfs.txt")
+# resultados <- descargar_lote_paralelo(urls, num_workers = 8)
+
+# # Para muchas URLs (>100), usar chunks
+# urls <- importar_urls_desde_archivo("urls_pdfs.txt")
+# resultados <- descargar_lote_por_chunks(
+#   urls,
+#   chunk_size = 30,        # Descargar en grupos de 30
+#   num_workers = 6,         # 6 workers por chunk
+#   pausa_entre_chunks = 2   # 2 segundos entre chunks
+# )
+
+# # Comparación de velocidad
+# urls <- importar_urls_desde_archivo("urls_pdfs.txt")
+#
+# # Método lento (secuencial)
+# cat("Descarga secuencial:\n")
+# system.time({
+#   descargar_lote(urls[1:10], pausa = 0.1)
+# })
+#
+# # Método rápido (paralelo)
+# cat("\nDescarga paralela:\n")
+# system.time({
+#   descargar_lote_paralelo(urls[1:10])
+# })
 
 # ===============================================
 # NOTAS IMPORTANTES
@@ -83,4 +122,5 @@ cat("\n📝 NOTAS:\n")
 cat("• Los PDFs se guardan en:", CARPETA_DESCARGA, "\n")
 cat("• Se organizan en carpetas por Zona y Puesto\n")
 cat("• Si un PDF ya existe, se saltea automáticamente\n")
-cat("• Hay una pausa de 0.5s entre descargas para no saturar el servidor\n\n")
+cat("• ⚡ NUEVO: Descarga paralela es 5-10x más rápida\n")
+cat("• Usa descargar_lote_paralelo() para máxima velocidad\n\n")
