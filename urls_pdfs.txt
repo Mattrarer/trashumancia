@@ -1,0 +1,35 @@
+# Archivo de URLs de PDFs - Registraduría Bucaramanga
+# =====================================================
+#
+# INSTRUCCIONES:
+# 1. Abre https://divulgacione14bucaramanga.registraduria.gov.co/departamento/27
+# 2. Abre DevTools (F12) → Network → Filtra por "pdf"
+# 3. Marca "Preserve log"
+# 4. Selecciona Zona/Puesto y haz clic en Ver para cada mesa
+# 5. Copia las URLs de los PDFs que aparezcan en Network
+# 6. Pega las URLs aquí abajo (una por línea)
+# 7. Guarda este archivo
+# 8. En R, ejecuta:
+#      source("descargar_pdfs_metodo_directo.R")
+#      urls <- importar_urls_desde_archivo("urls_pdfs.txt")
+#      descargar_lote(urls)
+#
+# NOTAS:
+# - Las líneas que empiezan con # son comentarios (se ignoran)
+# - Puedes organizar las URLs por zonas/puestos usando comentarios
+# - Ejemplo de URL:
+#   https://divulgacione14bucaramanga.registraduria.gov.co/assets/temis/pdf/27/001/001/01/001/ALC/754c79125074d0e6afb8eb0e63c35a6f196ae806cd840d264b6591b367112e60.pdf?uuid=29c38017-c8fc-40f7-86e1-05b2090a6aab
+
+# === ZONA 01 - Puesto 01 ===
+# Pega aquí las URLs de las mesas de esta zona/puesto
+
+
+# === ZONA 01 - Puesto 02 ===
+# Pega aquí las URLs
+
+
+# === ZONA 02 - Puesto 01 ===
+# Pega aquí las URLs
+
+
+# === Agrega más zonas/puestos según necesites ===
